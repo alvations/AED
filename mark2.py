@@ -102,12 +102,11 @@ def patch_encoder_forward(encoder_model):
         outputs = original_forward(*args, **kwargs)
         
         # FIX: Ensure 'attentions' attribute exists for EncoderDecoderModel compatibility
-        # MambaOutput does not have 'attentions', so we inject it as None.
         if not hasattr(outputs, "attentions"):
             try:
                 outputs.attentions = None
             except AttributeError:
-                # If output is a frozen dataclass or similar, return a standard compatible wrapper
+                # If output is a frozen dataclass, return a compatible wrapper
                 return BaseModelOutput(
                     last_hidden_state=outputs.last_hidden_state,
                     hidden_states=getattr(outputs, "hidden_states", None),
@@ -135,13 +134,23 @@ def patch_causallm_forward(decoder_model):
     original_forward = decoder_model.forward
     def forward(*args, **kwargs):
         # NOTE: Removing encoder_hidden_states here effectively disables cross-attention 
-        # for standard CausalLMs (like Qwen/Gemma) that don't support it natively.
+        # for standard CausalLMs (like Qwen/Gemma/Mamba) that don't support it natively.
         kwargs.pop("encoder_hidden_states", None); kwargs.pop("encoder_attention_mask", None); 
         kwargs.pop("num_items_in_batch", None); kwargs.pop("output_attentions", None)
+        
         outputs = original_forward(*args, **kwargs)
+        
+        # Robustly handle missing past_key_values (e.g. for Mamba which uses cache_params)
+        pkv = getattr(outputs, "past_key_values", None)
+        if pkv is None:
+             pkv = getattr(outputs, "cache_params", None)
+
         return CausalLMOutputWithCrossAttentions(
-            loss=outputs.loss, logits=outputs.logits, past_key_values=outputs.past_key_values,
-            hidden_states=getattr(outputs, "hidden_states", None), attentions=getattr(outputs, "attentions", None),
+            loss=getattr(outputs, "loss", None), 
+            logits=outputs.logits, 
+            past_key_values=pkv,
+            hidden_states=getattr(outputs, "hidden_states", None), 
+            attentions=getattr(outputs, "attentions", None),
             cross_attentions=None
         )
     decoder_model.forward = forward
@@ -308,6 +317,7 @@ def run_stage(cycle_num, stage_info, output_dir, prev_lora_info, do_inference=Tr
     elif dec_type == "enc-only":
         decoder = patch_maskedlm_forward(AutoModelForMaskedLM.from_pretrained(dec_id, trust_remote_code=True))
     else:
+        # Handles 'dec-only' and 'state-space' (Mamba)
         decoder = patch_causallm_forward(AutoModelForCausalLM.from_pretrained(dec_id, trust_remote_code=True))
 
     # Resize if we haven't done it yet (for non-seq2seq models)
