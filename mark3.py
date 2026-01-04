@@ -215,7 +215,9 @@ def run_stage(cycle_num, stage_info, output_dir, prev_lora_info, do_inference=Tr
     use_fp16 = torch.cuda.is_available() and not use_bf16
     load_dtype = torch.bfloat16 if use_bf16 else torch.float32
 
+    # --- UPDATED PRINT BLOCK ---
     print(f"\n🚀 CYCLE {cycle_num} | {stage_info['name'].upper()}")
+    print(f"   Encoder: {enc_id} | Decoder: {dec_id}")
     print(f"   Config: LoRA={use_lora} | ResetWeights={reset_weights}")
     print(f"   Hardware: BF16={use_bf16} -> Model Load Dtype={load_dtype}")
     
@@ -396,7 +398,6 @@ if __name__ == '__main__':
     else:
         print(f"\n🚀 STARTING META-PIPELINE: {NUM_CURRICULA} Random Curricula")
         for curriculum_num in range(1, NUM_CURRICULA + 1):
-            # GENERATOR WITH PRINTING IS CALLED HERE
             GENERATED_STAGES = generate_stages(SEED + curriculum_num - 1, NUM_STAGES_PER_CYCLE, curriculum_num)
             
             if curriculum_num > 1 and os.path.exists(PERSISTENT_ADAPTER_DIR):
